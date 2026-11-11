@@ -24,46 +24,7 @@ Vyapaar IQ helps Indian freelancers and sellers set a fixed USD price for global
 
 ## Architecture Diagram
 
-```text
-+-------------------+
-|      User         |
-| Enter target INR  |
-| Select FX cushion |
-+---------+---------+
-          |
-          v
-+-------------------+
-|   Vyapaar IQ UI   |
-|  Smart Pricing    |
-| Rate Analysis     |
-| Leakage Analysis  |
-| Buffer Studio     |
-| Your Hisaab       |
-+---------+---------+
-          |
-          v
-+-------------------+
-| Pricing Engine /  |
-| Backend API       |
-| - FX assumptions  |
-| - Payment fees    |
-| - Conversion cost |
-| - Cushion logic   |
-+---------+---------+
-          |
-          v
-+-------------------+
-| PayPal Sandbox    |
-| Orders / Payments |
-| Sandbox testing   |
-+---------+---------+
-          |
-          v
-+-------------------+
-| Estimated INR     |
-| settlement view   |
-+-------------------+
-```
+<img width="1311" height="1298" alt="image" src="https://github.com/user-attachments/assets/034e4c37-1105-4ccd-bac2-fbb7af9637bb" />
 
 ### Current implementation
 
