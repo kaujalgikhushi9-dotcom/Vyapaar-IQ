@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #f5f6fa;
+  background: #0b1020;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+
+* {
+  box-sizing: border-box;
+}
+
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+
+button,
+input {
+  font: inherit;
+}
+
+
+button {
+  cursor: pointer;
+}
+
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid #f5a623;
+  outline-offset: 4px;
+}
+
+
+::selection {
+  background: #f5a623;
+  color: #0b1020;
+}
