@@ -1,158 +1,64 @@
-**Vyapaar IQ** is an AI-powered pricing and settlement-clarity platform for Indian freelancers, creators, and small sellers.
+# INR-Stable Pricing Assistant: Part 3 (AI assistant, PayPal sandbox, demo)
 
-It helps merchants answer one key question before sending an international invoice:
+For Indian freelancers paid in USD through PayPal. The seller says how many rupees they want to receive. An AI assistant
+(an LLM that calls a pricing tool) recommends a fixed USD price, explains the trade-offs, and a sandbox buyer pays that exact price.
+The page shows where the money goes (PayPal fee, currency markup) and an **estimated** rupee range.
 
-> “If I charge this amount in USD, approximately how much INR will I receive after payment and conversion costs?”
+> **Sandbox only.** No real money moves. Rupee amounts are modeled estimates, never guarantees.
 
-Users enter a target INR amount, select an FX cushion, and receive a suggested fixed USD client price along with an estimated breakdown of payment fees, conversion reduction, and currency cushioning.
-
-## Project Overview & Live Links
-
-**Elevator pitch:**  
-Vyapaar IQ helps Indian freelancers and sellers set a fixed USD price for global clients and instantly see the estimated INR they will actually receive after payment, conversion, and FX costs.
-
-**Live demo:**  
-[Add your hosted application URL here]
-
-**Demo video:**  
-[Add your public YouTube demo video link here]
-
-**Public repository:**  
-[Add your public GitHub repository link here]
-
-> Note: The current version is a functional frontend prototype with an illustrative pricing model. It does not provide guaranteed settlement amounts, live FX rates, or live payment-provider quotes. Backend, PayPal Sandbox, and AI integrations are planned/under development.
-
-## Architecture Diagram
-
-<img width="1311" height="1298" alt="image" src="https://github.com/user-attachments/assets/034e4c37-1105-4ccd-bac2-fbb7af9637bb" />
-
-### Current implementation
-
-At present, the pricing calculation is handled by the frontend’s illustrative pricing module. The user enters a target INR amount and cushion, and the application returns a suggested USD client price and estimated INR outcome.
-
-### Planned architecture
-
-In the connected version:
-
-1. The user enters a target INR amount and cushion.
-2. The frontend sends these inputs to the backend pricing API.
-3. The backend applies configurable FX, payment-fee, and conversion-cost assumptions.
-4. The backend returns a suggested client price and settlement breakdown.
-5. PayPal Sandbox can be used to test the checkout/order flow in a controlled environment.
-6. The AI assistant explains pricing inputs, cushion choices, and estimated deductions in plain language.
-
-## Tech Stack & Tools Used
-
-### Frontend
-
-- React
-- Vite
-- JavaScript
-- Tailwind CSS
-- Lucide React
-- React Router
-
-### Pricing and product features
-
-- Smart Pricing
-- Rate Analysis
-- Leakage Analysis
-- Buffer Studio
-- Your Hisaab
-- Transactions preview
-- Clients preview
-- Earnings overview
-- Notifications
-
-### Planned PayPal integration
-
-- PayPal Sandbox
-- PayPal Orders v2 API
-- PayPal Payments API
-
-### Planned AI integration
-
-- AI assistant for plain-language pricing explanations
-- AI-powered explanation of cushion selection and estimated deductions
-
-### Planned deployment and partner tools
-
-- Render for application hosting
-- APIMatic for API documentation/integration support, if used
-- AG Grid for advanced data tables, if used
-
-## Step-by-Step Setup Instructions
-
-### 1. Clone the repository
-
-```bash
-git clone [https://github.com/YOUR_USERNAME/vyapaar-iq.git](https://github.com/YOUR_USERNAME/vyapaar-iq.git)
-cd vyapaar-iq
-```
-
-### 2. Install dependencies
+## Run it (Node 18 or newer)
 
 ```bash
 npm install
+cp .env.example .env        # Windows PowerShell: copy .env.example .env
+# fill in .env (see below), then:
+npm start                   # http://localhost:3000
+npm test                    # pricing + guardrail tests
 ```
 
-### 3. Configure environment variables
+### What goes in `.env`
+| Variable | What it is |
+|---|---|
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | From developer.paypal.com > Apps & Credentials > **Sandbox** |
+| `GROQ_API_KEY` | **Free** key for the AI assistant from console.groq.com (no credit card). If no AI key is set, the app runs in clearly labeled **template mode** |
+| `GROQ_MODEL` | Defaults to `llama-3.3-70b-versatile` |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Optional paid alternative (Claude). Used only if no Groq key is set, or if `LLM_PROVIDER=anthropic` |
+| `ALLOWED_ORIGIN` | Only if the frontend runs on another address (CORS), e.g. `http://localhost:5173` |
+| `FALLBACK_USD_INR` | Used only if the live rate API is unreachable; shown as a "snapshot", never as live |
 
-Create a `.env` file in the project root:
+Never commit `.env`. It is in `.gitignore`.
 
-```bash
-copy .env.example .env
-```
+### Test the payment
+1. Start the app and click **₹15,000 example**.
+2. Click the PayPal button. Log in with the sandbox **personal (buyer)** account from your PayPal developer dashboard.
+3. Approve. The app captures the payment and shows the status and any fee data PayPal returned.
 
-Add your PayPal Sandbox credentials:
+## How it works
+1. `agent.js`: the LLM (tool calling) may only call `create_quote`. All numbers come from `pricing.js`.
+2. **Guardrails enforced in code:** every money figure in the AI reply must exist in the tool result; promise language ("guarantee") is blocked; assumptions are rendered by the app, not by the model. If any check fails, a fixed template answer is used.
+3. `paypal.js`: creates an order for exactly the quoted USD price (never changed after checkout starts) and captures it. Expired quotes are rejected at order creation and capture.
+4. `rates.js`: USD/INR reference rate from Frankfurter (ECB data), 10-minute cache, snapshot fallback.
 
-```env
-VITE_PAYPAL_CLIENT_ID=your_paypal_sandbox_client_id
-VITE_PAYPAL_CLIENT_SECRET=your_paypal_sandbox_client_secret
-VITE_PAYPAL_ENVIRONMENT=sandbox
-```
+## What is real and what is estimated
+- **Real:** PayPal sandbox order creation and capture; the live reference exchange rate (when reachable); the LLM tool calling.
+- **Modeled (estimates):** the PayPal fee and currency markup use PayPal's published India merchant fee page
+  (https://pep.paypal.com/in/business/paypal-business-fees, page dated 28 March 2024: 4.40% + $0.30 for international payments received;
+  3.0% above the base rate for converting payments received). **Which conversion markup applies to an Indian seller's automatic conversion is an assumption**;
+  `fees.config.js` has a second 4.0% profile.
+- **Not simulated:** the sandbox cannot send money to an Indian bank, so "rupees received" is a computed range.
 
-> Do not commit real credentials, secrets, or `.env` files to GitHub.
+## Tools used
+- LLM: Llama 3.3 70B served by Groq (OpenAI-compatible chat API with function/tool calling) for the pricing assistant. Anthropic Claude is supported as an optional alternative.
+- PayPal Orders v2 + PayPal JS SDK (sandbox).
+- Frankfurter API for reference exchange rates.
 
-### 4. Run the application
+## Team integration notes
+- `pricing.js` is a stand-in. Keep `computeQuote({ sellerInrTarget, bufferPct, midRate })` or call the real pricing service from `createQuote` in `server.js`.
+- API: `POST /api/agent`, `POST /api/quote`, `GET /api/quote/:id`, `GET /api/assumptions`, `GET /api/rates`, `POST /api/paypal/create-order`, `POST /api/paypal/capture`.
+- Public demo URL: the agent and PayPal endpoints are rate-limited per IP so strangers cannot burn the LLM key.
 
-```bash
-npm run dev
-```
+## Limits
+USD only. Quotes are held in memory and expire after 15 minutes (a server restart clears them). Not for production use.
 
-Open the `Local:` URL printed in the terminal, usually:
-
-```text
-http://localhost:5173/
-```
-
-## Test Credentials / Sandbox Flow
-
-### Current frontend prototype
-
-No login or PayPal credentials are required to explore the current frontend prototype.
-
-1. Open the application.
-2. Go to **Smart Pricing**.
-3. Enter a target INR amount, for example `500000`.
-4. Select an FX cushion, such as `3%` or `5%`.
-5. Review the suggested USD client price.
-6. Review the estimated INR outcome and cost breakdown.
-7. Explore **Rate Analysis**, **Leakage Analysis**, **Buffer Studio**, and **Your Hisaab**.
-
-### PayPal Sandbox flow
-
-Once PayPal Sandbox integration is connected:
-
-1. Create or use a PayPal developer account.
-2. Create a Sandbox business and personal account in the PayPal Developer Dashboard.
-3. Add the Sandbox client ID and secret to `.env`.
-4. Start a test checkout from the application.
-5. Use PayPal Sandbox buyer credentials to complete the test transaction.
-6. Review the order status and payment result in the PayPal Developer Dashboard.
-
-> PayPal Sandbox buyer credentials are required for end-to-end Sandbox checkout testing. The application will not process real payments in Sandbox mode.
-
-## Important Disclaimer
-
-Vyapaar IQ provides planning and interface previews. It does not guarantee settlement, provide financial, tax, or investment advice, or connect to live payment accounts in its current version.
+## License
+MIT
