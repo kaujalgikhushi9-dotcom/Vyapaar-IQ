@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
+
 
 app = FastAPI(
     title="RupeeLens - Person 1 Pricing API",
@@ -10,18 +12,41 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+# -----------------------------------------
+# CORS CONFIGURATION
+# -----------------------------------------
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 # -----------------------------------------
 # CONFIGURATION
 # -----------------------------------------
 
+
 QUOTE_VALID_MINUTES = 15
 MAX_FX_RATE_AGE_MINUTES = 15
+
 
 # Illustrative defaults only.
 # Replace these with verified PayPal fee settings.
 DEFAULT_TRANSACTION_FEE = Decimal("0.044")
 DEFAULT_FIXED_FEE_USD = Decimal("0.30")
 DEFAULT_FIXED_FEE_EUR = Decimal("0.35")
+
 
 # In-memory quote storage for this demonstration
 quotes = {}
@@ -30,6 +55,7 @@ quotes = {}
 # -----------------------------------------
 # MONEY HELPERS
 # -----------------------------------------
+
 
 def money(value: Decimal) -> Decimal:
     return value.quantize(
@@ -54,10 +80,11 @@ def now_utc():
 # REQUEST MODELS
 # -----------------------------------------
 
+
 class PricingRequest(BaseModel):
     target_inr: Decimal = Field(gt=0)
     currency: str = Field(default="USD")
-    
+
     # INR received per 1 USD or EUR
     reference_rate: Decimal = Field(gt=0)
 
@@ -87,6 +114,7 @@ class PricingRequest(BaseModel):
 class QuoteRequest(PricingRequest):
     seller_name: str = "Seller"
 
+
 class FXRateUpdate(BaseModel):
     reference_rate: Decimal = Field(gt=0)
 
@@ -95,10 +123,10 @@ class FXRateUpdate(BaseModel):
     timestamp: datetime
 
 
-
 # -----------------------------------------
 # PRICING ENGINE
 # -----------------------------------------
+
 
 def calculate_price(data: PricingRequest):
 
@@ -271,9 +299,11 @@ def calculate_price(data: PricingRequest):
         )
     }
 
+
 # -----------------------------------------
 # HEALTH & HOME
 # -----------------------------------------
+
 
 @app.get("/")
 def home():
@@ -294,6 +324,7 @@ def health():
 # CALCULATE PRICE
 # -----------------------------------------
 
+
 @app.post("/api/v1/pricing/calculate")
 def calculate_endpoint(data: PricingRequest):
     return calculate_price(data)
@@ -302,6 +333,7 @@ def calculate_endpoint(data: PricingRequest):
 # -----------------------------------------
 # CREATE QUOTE
 # -----------------------------------------
+
 
 @app.post("/api/v1/quotes")
 def create_quote(data: QuoteRequest):
@@ -334,6 +366,7 @@ def create_quote(data: QuoteRequest):
 # GET QUOTE
 # -----------------------------------------
 
+
 @app.get("/api/v1/quotes/{quote_id}")
 def get_quote(quote_id: str):
 
@@ -355,9 +388,11 @@ def get_quote(quote_id: str):
 # REFRESH QUOTE
 # -----------------------------------------
 
+
 # -----------------------------------------
 # REFRESH QUOTE USING UPDATED FX RATE
 # -----------------------------------------
+
 
 @app.post("/api/v1/quotes/{quote_id}/refresh")
 def refresh_quote(
@@ -455,6 +490,7 @@ def refresh_quote(
 # LIST QUOTES
 # -----------------------------------------
 
+
 @app.get("/api/v1/quotes")
 def list_quotes():
 
@@ -473,6 +509,7 @@ def list_quotes():
 # DELETE QUOTE
 # -----------------------------------------
 
+
 @app.delete("/api/v1/quotes/{quote_id}")
 def delete_quote(quote_id: str):
 
@@ -488,6 +525,7 @@ def delete_quote(quote_id: str):
         "message": "Quote deleted",
         "quote_id": quote_id
     }
+
 
 @app.get("/demo")
 def demo():
@@ -507,6 +545,7 @@ def demo():
 # -----------------------------------------
 # DEMO: TEST UPDATED FX RATE
 # -----------------------------------------
+
 
 @app.get("/demo/refresh")
 def demo_refresh():
@@ -540,5 +579,3 @@ def demo_refresh():
         original_quote["quote_id"],
         updated_fx
     )
-
-

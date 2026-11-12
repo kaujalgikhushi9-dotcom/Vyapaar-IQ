@@ -8,7 +8,8 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import {
-  calculatePricing,
+  calculatePriceFromApi,
+  createQuoteFromApi,
   formatINR,
   formatUSD,
 } from '../lib/pricing'
@@ -42,6 +43,12 @@ export default function PricingPage() {
   const [result, setResult] = useState(null)
   const [copyState, setCopyState] = useState('idle')
   const [isStale, setIsStale] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isCreatingQuote, setIsCreatingQuote] = useState(false)
+  const [savedQuote, setSavedQuote] = useState(null)
+  const [paypalOrder, setPaypalOrder] = useState(null)
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false)
+  const [isCapturing, setIsCapturing] = useState(false)
   const [showAssumptions, setShowAssumptions] = useState(false)
   const targetInputRef = useRef(null)
 
@@ -49,6 +56,8 @@ export default function PricingPage() {
     setTarget(formatTargetInput(event.target.value))
     setMessage('')
     setCopyState('idle')
+    setSavedQuote(null)
+    setPaypalOrder(null)
 
     if (result) {
       setIsStale(true)
@@ -59,13 +68,15 @@ export default function PricingPage() {
     setBuffer(value)
     setMessage('')
     setCopyState('idle')
+    setSavedQuote(null)
+    setPaypalOrder(null)
 
     if (result) {
       setIsStale(true)
     }
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
 
     const targetValue = Number(target.replace(/,/g, ''))
@@ -81,20 +92,175 @@ export default function PricingPage() {
       return
     }
 
+    setIsLoading(true)
+    setMessage('')
+    setCopyState('idle')
+    setIsStale(false)
+    setSavedQuote(null)
+    setPaypalOrder(null)
+
     try {
-      const pricing = calculatePricing(targetValue, buffer)
+      const apiResult = await calculatePriceFromApi({
+        targetInr: targetValue,
+        bufferPercent: buffer,
+      })
+
+      const breakdown = apiResult.breakdown || {}
+
+      const grossInr =
+        breakdown.mid_market_value_inr ??
+        apiResult.mid_market_value_inr ??
+        0
+
+      const paymentFeeInr =
+        breakdown.paypal_fee_usd != null
+          ? breakdown.paypal_fee_usd * (apiResult.mid_rate || 0)
+          : 0
+
+      const conversionCostInr =
+        breakdown.fx_markup_cost_inr ??
+        apiResult.fx_markup_cost_inr ??
+        0
+
+      const estimatedNetInr =
+        apiResult.merchant_inr_high ??
+        apiResult.estimated_inr_if_rate_unchanged ??
+        targetValue
+
+      const allowanceInr = Math.max(
+        0,
+        estimatedNetInr - targetValue,
+      )
+
+      setResult({
+        buyerPrice: apiResult.buyer_price ?? apiResult.buyerPrice ?? 0,
+        targetInr: apiResult.seller_inr_target ?? targetValue,
+        bufferPercent: apiResult.buffer_pct ?? buffer,
+        grossInr,
+        paymentFeeInr,
+        conversionCostInr,
+        estimatedNetInr,
+        allowanceInr,
+        simpleConversion: {
+          estimatedNetInr: targetValue,
+        },
+      })
 
       setMessage('Pricing estimate ready.')
       setMessageType('success')
-      setResult(pricing)
       setCopyState('idle')
-      setIsStale(false)
     } catch (error) {
       setMessage(error.message)
       setMessageType('error')
       setResult(null)
       setCopyState('idle')
-      setIsStale(false)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleCreateQuote() {
+    const targetValue = Number(target.replace(/,/g, ''))
+
+    if (!result || isStale) {
+      setMessage('Calculate the client price first.')
+      setMessageType('error')
+      return
+    }
+
+    setIsCreatingQuote(true)
+    setMessage('')
+    setSavedQuote(null)
+    setPaypalOrder(null)
+
+    try {
+      const quote = await createQuoteFromApi({
+        targetInr: targetValue,
+        bufferPercent: buffer,
+      })
+
+      setSavedQuote(quote)
+      setMessage('Quote created successfully.')
+      setMessageType('success')
+    } catch (error) {
+      setMessage(error.message)
+      setMessageType('error')
+    } finally {
+      setIsCreatingQuote(false)
+    }
+  }
+
+  async function handleCreatePaypalOrder() {
+    if (!savedQuote) return
+
+    setIsCreatingOrder(true)
+    setMessage('')
+    setPaypalOrder(null)
+
+    try {
+      const response = await fetch(
+        'http://localhost:3000/api/paypal/create-order',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            quoteId: savedQuote.id,
+          }),
+        },
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Could not create PayPal order.')
+      }
+
+      setPaypalOrder(data)
+      setMessage('PayPal sandbox order created.')
+      setMessageType('success')
+    } catch (error) {
+      setMessage(error.message)
+      setMessageType('error')
+    } finally {
+      setIsCreatingOrder(false)
+    }
+  }
+
+  async function handleCapturePayment() {
+    if (!paypalOrder) return
+
+    setIsCapturing(true)
+    setMessage('')
+
+    try {
+      const response = await fetch(
+        'http://localhost:3000/api/paypal/capture',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            orderId: paypalOrder.id,
+          }),
+        },
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Could not capture payment.')
+      }
+
+      setMessage('Payment captured. Quote marked as paid.')
+      setMessageType('success')
+    } catch (error) {
+      setMessage(error.message)
+      setMessageType('error')
+    } finally {
+      setIsCapturing(false)
     }
   }
 
@@ -124,6 +290,8 @@ export default function PricingPage() {
     setResult(null)
     setCopyState('idle')
     setIsStale(false)
+    setSavedQuote(null)
+    setPaypalOrder(null)
 
     targetInputRef.current?.focus()
   }
@@ -232,9 +400,10 @@ export default function PricingPage() {
 
           <button
             type="submit"
-            className="group mt-9 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F5A623] px-6 py-4 text-base font-semibold text-[#0B1020] transition hover:bg-[#FFB843]"
+            disabled={isLoading}
+            className="group mt-9 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F5A623] px-6 py-4 text-base font-semibold text-[#0B1020] transition hover:bg-[#FFB843] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Calculate client price
+            {isLoading ? 'Calculating…' : 'Calculate client price'}
 
             <ArrowRight
               size={18}
@@ -310,6 +479,19 @@ export default function PricingPage() {
                   </p>
 
                   <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCreateQuote}
+                      disabled={isCreatingQuote || isStale}
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#F5A623] px-4 py-2.5 text-sm font-semibold text-[#0B1020] transition hover:bg-[#FFB843] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isCreatingQuote
+                        ? 'Creating quote…'
+                        : 'Create quote'}
+
+                      <ArrowRight size={16} />
+                    </button>
+
                     <button
                       type="button"
                       onClick={handleCopyClientPrice}
@@ -416,6 +598,67 @@ export default function PricingPage() {
                     target.
                   </p>
                 </div>
+
+                {savedQuote ? (
+                  <div className="mt-4 rounded-2xl border border-[#29D6A0]/40 bg-[#29D6A0]/10 p-5">
+                    <p className="text-xs uppercase tracking-[0.16em] text-[#29D6A0]">
+                      Quote saved
+                    </p>
+
+                    <p className="mt-3 font-mono text-sm text-white">
+                      {savedQuote.id}
+                    </p>
+
+                    <p className="mt-2 text-sm text-[#9AA8BC]">
+                      This quote is now visible in Transactions.
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={handleCreatePaypalOrder}
+                        disabled={isCreatingOrder}
+                        className="inline-flex items-center gap-2 rounded-xl bg-[#F5A623] px-4 py-2.5 text-sm font-semibold text-[#0B1020] transition hover:bg-[#FFB843] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isCreatingOrder
+                          ? 'Creating order…'
+                          : 'Proceed to checkout'}
+                      </button>
+
+                      {paypalOrder?.approval_url ? (
+                        <a
+                          href={paypalOrder.approval_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-xl border border-[#29354D] bg-[#0B1020] px-4 py-2.5 text-sm font-semibold text-[#DCE4F0] transition hover:border-[#F5A623] hover:text-white"
+                        >
+                          Open PayPal Sandbox
+                        </a>
+                      ) : null}
+
+                      {paypalOrder ? (
+                        <button
+                          type="button"
+                          onClick={handleCapturePayment}
+                          disabled={isCapturing}
+                          className="inline-flex items-center gap-2 rounded-xl border border-[#29D6A0]/40 bg-[#29D6A0]/10 px-4 py-2.5 text-sm font-semibold text-[#29D6A0] transition hover:bg-[#29D6A0]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isCapturing
+                            ? 'Capturing…'
+                            : 'Capture sandbox payment'}
+                        </button>
+                      ) : null}
+
+                      <a
+                        href="/transactions"
+                        className="inline-flex items-center gap-2 rounded-xl border border-[#29354D] bg-[#0B1020] px-4 py-2.5 text-sm font-semibold text-[#DCE4F0] transition hover:border-[#F5A623] hover:text-white"
+                      >
+                        View Transactions
+                        <ArrowRight size={16} />
+                      </a>
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="mt-8 rounded-2xl border border-dashed border-[#29354D] bg-[#10172A] p-6">
@@ -434,7 +677,7 @@ export default function PricingPage() {
                       cushion, and click
                       <span className="font-semibold text-white">
                         {' '}
-                        Calculate client price
+                        Calculate client price{' '}
                       </span>
                       .
                     </p>
@@ -508,7 +751,7 @@ export default function PricingPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-[#9AA8BC]">Payment fee</span>
                     <span className="font-medium text-white">
-                      4% + $0.30
+                      4.4% + $0.30
                     </span>
                   </div>
 

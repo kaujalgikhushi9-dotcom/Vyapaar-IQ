@@ -1,3 +1,6 @@
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const BACKEND_BASE_URL = import.meta.env.VITE_BACKEND_BASE_URL || "http://localhost:3000";
+
 export const DEMO_ASSUMPTIONS = Object.freeze({
   referenceRate: 88.2,
   paymentFeePercent: 4,
@@ -105,7 +108,7 @@ export function calculatePricing(targetInr, bufferPercent) {
   const simpleConversion = calculateSettlement(simpleConversionPrice)
 
   return {
-   ...settlement,
+    ...settlement,
     targetInr,
     bufferPercent,
     simpleConversion,
@@ -116,4 +119,59 @@ export function calculatePricing(targetInr, bufferPercent) {
       Math.max(0, settlement.estimatedNetInr - targetInr),
     ),
   }
+}
+
+export async function calculatePriceFromApi({
+  targetInr,
+  currency = "USD",
+  bufferPercent = 3,
+}) {
+  const response = await fetch(
+    `${BACKEND_BASE_URL}/api/pricing/preview`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sellerInrTarget: targetInr,
+        bufferPct: bufferPercent,
+      }),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not calculate the price.");
+  }
+
+  return data;
+}
+
+export async function createQuoteFromApi({
+  targetInr,
+  bufferPercent,
+}) {
+  const response = await fetch(
+    `${BACKEND_BASE_URL}/api/quote`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sellerInrTarget: targetInr,
+        bufferPct: bufferPercent,
+      }),
+    },
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not create the quote.");
+  }
+
+  return data;
 }
